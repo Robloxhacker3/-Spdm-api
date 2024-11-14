@@ -1,6 +1,11 @@
-const { parse } = require('querystring');  // for parsing URL query parameters
+const express = require('express');
+const { parse } = require('querystring'); // for parsing URL query parameters
+
+const app = express();
+const port = process.env.PORT || 3000;
 
 const getRedirectURL = (currentURL, pageTitle) => {
+  // Check for conditions on spdmteam.com URLs
   if (currentURL.includes('spdmteam.com/key-system-1?hwid=')) {
     return currentURL.replace('https://spdmteam.com/key-system-1?hwid=', 'https://spdmteam.com/api/keysystem?hwid=')
                      .replace('&zone=Europe/Rome', '&zone=Europe/Rome&advertiser=linkvertise&OS=ios');
@@ -15,37 +20,31 @@ const getRedirectURL = (currentURL, pageTitle) => {
   } else if (pageTitle.includes("NEO") && pageTitle.includes("3")) {
     return "https://spdmteam.com/api/keysystem?step=3&advertiser=linkvertise&OS=ios";
   }
-
+  
   return null;  // Return null if no condition matches
 };
 
-module.exports = (req, res) => {
+app.get('/api/spdm-redirect', (req, res) => {
   const { currentURL, pageTitle } = req.query;
-  
-  // Start time to measure processing duration
   const startTime = Date.now();
 
-  // Handle the redirection logic for spdmteam.com
   if (currentURL.includes('spdmteam.com')) {
     const redirectURL = getRedirectURL(currentURL, pageTitle);
     if (redirectURL) {
-      const endTime = Date.now();
-      const timeTaken = endTime - startTime;  // Time in milliseconds
-      console.log(`Redirect processing time: ${timeTaken} ms`);
-      
-      // Redirect the client to the final URL
-      res.redirect(redirectURL);  // Perform actual redirect
-      return;  // Return after redirect
+      const timeTaken = Date.now() - startTime;
+      return res.status(200).send(`Redirecting took ${timeTaken}ms`);
     } else {
-      return res.status(400).json({ error: 'No matching condition for redirect' });
+      return res.status(400).send("Error: No matching condition for redirect");
     }
   }
 
-  // Handling page title "Just a moment..." if script is not working
   if (pageTitle === 'Just a moment...') {
-    return res.status(400).json({ error: 'Script doesn\'t work, please wait for an update (disable the script if you wanna)' });
+    return res.status(400).send("Error: Script doesn't work, please wait for an update (disable the script if you want to)");
   }
 
-  // Default response for invalid URL or conditions
-  res.status(400).json({ error: 'Invalid URL or conditions' });
-};
+  return res.status(400).send("Error: Invalid URL or conditions");
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
