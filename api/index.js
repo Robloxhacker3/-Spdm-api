@@ -1,64 +1,85 @@
-const express = require('express');
-const { parse } = require('querystring'); // for parsing URL query parameters
+// File: api/index.js
+
+const express = require("express");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
+app.use(express.json()); // Parse JSON request bodies
 
-// Function to determine the redirect URL based on the current URL and page title
-const getRedirectURL = (currentURL, pageTitle) => {
-  if (currentURL.includes('spdmteam.com/key-system-1?hwid=')) {
-    return currentURL.replace('https://spdmteam.com/key-system-1?hwid=', 'https://spdmteam.com/api/keysystem?hwid=')
-                     .replace('&zone=Europe/Rome', '&zone=Europe/Rome&advertiser=lootlabs&OS=ios');
-  } else if (pageTitle.includes("NEO") && pageTitle.includes("1")) {
-    return "https://spdmteam.com/api/keysystem?step=1&advertiser=lootlabs&OS=ios";
-  } else if (currentURL.includes('spdmteam.com/key-system-2?hwid=')) {
-    return "https://loot-link.com/s?mYit";
-  } else if (pageTitle.includes("NEO") && pageTitle.includes("2")) {
-    return "https://spdmteam.com/api/keysystem?step=2&advertiser=lootlabs&OS=ios";
-  } else if (currentURL.includes('spdmteam.com/key-system-3?hwid=')) {
-    return "https://loot-link.com/s?qlbU";
-  } else if (pageTitle.includes("NEO") && pageTitle.includes("3")) {
-    return "https://spdmteam.com/api/keysystem?step=3&advertiser=lootlabs&OS=ios";
-  }
-  
-  return null; // Return null if no matching condition
-};
+// In-memory database for storing keys
+const keys = new Map(); // { key: { userId: "12345", isValid: true, createdAt: timestamp, lootlabsLink: "URL" } }
 
-// Handle the API redirect
-app.get('/api/spdm-redirect', (req, res) => {
-  const { currentURL, pageTitle } = req.query;
-  const startTime = Date.now();
+// Generate a new key with a LootLabs link
+app.post("/generate-key", (req, res) => {
+    const { userId, lootlabsLink } = req.body;
 
-  // Attempting to process all three key systems
-  const steps = [
-    { step: 1, url: 'spdmteam.com/key-system-1?hwid=' },
-    { step: 2, url: 'spdmteam.com/key-system-2?hwid=' },
-    { step: 3, url: 'spdmteam.com/key-system-3?hwid=' }
-  ];
-
-  // Sequential processing of key system redirects
-  let redirectURL = null;
-
-  for (let i = 0; i < steps.length; i++) {
-    if (currentURL.includes(steps[i].url)) {
-      redirectURL = getRedirectURL(currentURL, pageTitle);
-      if (redirectURL) {
-        break; // Stop once the correct redirect URL is found
-      }
+    if (!userId || !lootlabsLink) {
+        return res.status(400).json({ error: "Missing userId or lootlabsLink in request body" });
     }
-  }
 
-  // Check for valid redirect and perform the redirect
-  if (redirectURL) {
-    const timeTaken = Date.now() - startTime;
-    setTimeout(() => {
-      res.send(`Redirecting... (Time taken: ${timeTaken}ms)`);
-      setTimeout(() => {
-        res.redirect(redirectURL);
-      }, 2000); // Delay redirect after displaying message
-    }, 500); // Small delay before showing the redirect message
-  } else {
-    // Handle error if no valid redirect URL is found
-    res.status(400).send("Error: An issue occurred while processing the redirect.");
-  }
+    // Generate a unique key
+    const apiKey = uuidv4();
+
+    // Save the key in the database
+    keys.set(apiKey, {
+        userId,
+        isValid: true,
+        createdAt: new Date().toISOString(),
+        lootlabsLink,
+    });
+
+    res.status(200).json({
+        message: "Key generated successfully",
+        apiKey,
+        lootlabsLinkWithKey: `${lootlabsLink}?key=${apiKey}`, // Append the key to the link
+    });
 });
 
+// Validate a key
+app.get("/validate-key/:key", (req, res) => {
+    const { key } = req.params;
+
+    if (!keys.has(key)) {
+        return res.status(404).json({ valid: false, error: "Key not found" });
+    }
+
+    const keyInfo = keys.get(key);
+    if (!keyInfo.isValid) {
+        return res.status(400).json({ valid: false, error: "Key is invalid or already used" });
+    }
+
+    res.status(200).json({
+        valid: true,
+        userId: keyInfo.userId,
+        lootlabsLink: keyInfo.lootlabsLink,
+        createdAt: keyInfo.createdAt,
+    });
+});
+
+// Invalidate a key after use
+app.post("/invalidate-key", (req, res) => {
+    const { key } = req.body;
+
+    if (!key || !keys.has(key)) {
+        return res.status(404).json({ error: "Key not found" });
+    }
+
+    const keyInfo = keys.get(key);
+
+    if (!keyInfo.isValid) {
+        return res.status(400).json({ error: "Key is already invalidated" });
+    }
+
+    // Invalidate the key
+    keys.set(key, { ...keyInfo, isValid: false });
+
+    res.status(200).json({ message: "Key invalidated successfully" });
+});
+
+// Default handler for unknown routes
+app.use((req, res) => {
+    res.status(404).json({ error: "API endpoint not found" });
+});
+
+// Export the app for Vercel
+module.exports = app;
